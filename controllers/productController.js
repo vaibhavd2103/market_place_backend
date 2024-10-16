@@ -1,4 +1,5 @@
 const Product = require("../models/Product");
+const cache = require("../utils/cache");
 
 exports.createProduct = async (req, res) => {
   const { title, description, price } = req.body;
@@ -17,6 +18,7 @@ exports.createProduct = async (req, res) => {
 
   try {
     const product = await newProduct.save();
+    await cache.del("products:approved");
     res.status(201).json({ product });
   } catch (err) {
     res
@@ -27,11 +29,23 @@ exports.createProduct = async (req, res) => {
 
 exports.getProducts = async (req, res) => {
   try {
+    const cachedProducts = await cache.get("products:approved");
+    if (cachedProducts) {
+      return res.json({
+        products: JSON.parse(cachedProducts),
+        source: "cache",
+      });
+    }
+
     const products = await Product.find({ approved: true }).populate(
       "seller",
       "username"
     );
-    res.json({ products });
+    await cache.set("products:approved", JSON.stringify(products), {
+      EX: 3600,
+    });
+
+    res.json({ products, source: "database" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
@@ -92,6 +106,7 @@ exports.updateProduct = async (req, res) => {
     product.approved = false;
 
     await product.save();
+    await cache.del("products:approved");
     res.json({ product });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -112,6 +127,8 @@ exports.deleteProduct = async (req, res) => {
     }
 
     await product.remove();
+    await cache.del("products:approved");
+
     res.json({ message: "Product removed" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -132,6 +149,8 @@ exports.approveProduct = async (req, res) => {
 
     product.approved = true;
     await product.save();
+    await cache.del("products:approved");
+
     res.json({ message: "Product approved", product });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
